@@ -1,0 +1,16 @@
+[server]
+headless = true
+address = "0.0.0.0"
+port = 5000
+maxUploadSize = 200
+enableXsrfProtection = true
+
+[theme]
+primaryColor = "#1E88E5"  # Blue for trust and professionalism
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F8F9FA"
+textColor = "#212121"  # Dark text for good contrast
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
