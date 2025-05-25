@@ -16,18 +16,22 @@ def get_credentials():
     """Get credentials from either environment variables or Streamlit secrets"""
     try:
         # Try to get from Streamlit secrets first (for production)
-        return {
-            "account_sid": st.secrets.twilio.account_sid,
-            "auth_token": st.secrets.twilio.auth_token,
-            "from_number": st.secrets.twilio.from_number
-        }
-    except (AttributeError, KeyError):
-        # Fallback to environment variables (for local development)
-        return {
-            "account_sid": os.environ.get("TWILIO_ACCOUNT_SID"),
-            "auth_token": os.environ.get("TWILIO_AUTH_TOKEN"),
-            "from_number": os.environ.get("TWILIO_FROM_NUMBER")
-        }
+        if 'twilio' in st.secrets:
+            return {
+                "account_sid": st.secrets.twilio.account_sid,
+                "auth_token": st.secrets.twilio.auth_token,
+                "phone_number": st.secrets.twilio.phone_number
+            }
+        else:
+            # Fallback to environment variables (for local development)
+            return {
+                "account_sid": os.environ.get("TWILIO_ACCOUNT_SID"),
+                "auth_token": os.environ.get("TWILIO_AUTH_TOKEN"),
+                "phone_number": os.environ.get("TWILIO_PHONE_NUMBER")
+            }
+    except Exception as e:
+        st.error(f"❌ Error getting Twilio credentials: {str(e)}")
+        return None
 
 # Global notification settings
 notification_settings = {
@@ -42,16 +46,24 @@ history_lock = threading.Lock()
 # Initialize Twilio credentials as None
 TWILIO_ACCOUNT_SID = None
 TWILIO_AUTH_TOKEN = None
-TWILIO_FROM_NUMBER = None
+TWILIO_PHONE_NUMBER = None
 NOTIFICATION_PHONE_NUMBER = None  # Will be set when user enters their number in the UI
 
 def initialize_twilio_credentials():
     """Initialize Twilio credentials from environment or secrets"""
-    global TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER
+    global TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
     credentials = get_credentials()
-    TWILIO_ACCOUNT_SID = credentials["account_sid"]
-    TWILIO_AUTH_TOKEN = credentials["auth_token"]
-    TWILIO_FROM_NUMBER = credentials["from_number"]
+    if credentials:
+        TWILIO_ACCOUNT_SID = credentials["account_sid"]
+        TWILIO_AUTH_TOKEN = credentials["auth_token"]
+        TWILIO_PHONE_NUMBER = credentials["phone_number"]
+        
+        # Debug info (will only show in development)
+        if DEV_MODE:
+            print(f"Twilio credentials initialized:")
+            print(f"Account SID: {'Set' if TWILIO_ACCOUNT_SID else 'Not Set'}")
+            print(f"Auth Token: {'Set' if TWILIO_AUTH_TOKEN else 'Not Set'}")
+            print(f"Phone Number: {TWILIO_PHONE_NUMBER if TWILIO_PHONE_NUMBER else 'Not Set'}")
 
 # Initialize credentials when module is loaded
 initialize_twilio_credentials()
@@ -73,10 +85,10 @@ def send_sms_notification(message, document=None):
     print("\n=== SMS Notification Debug ===")
     print(f"TWILIO_ACCOUNT_SID: {'Set' if TWILIO_ACCOUNT_SID else 'Not Set'}")
     print(f"TWILIO_AUTH_TOKEN: {'Set' if TWILIO_AUTH_TOKEN else 'Not Set'}")
-    print(f"TWILIO_FROM_NUMBER: {TWILIO_FROM_NUMBER if TWILIO_FROM_NUMBER else 'Not Set'}")
+    print(f"TWILIO_PHONE_NUMBER: {TWILIO_PHONE_NUMBER if TWILIO_PHONE_NUMBER else 'Not Set'}")
     print(f"NOTIFICATION_PHONE_NUMBER: {NOTIFICATION_PHONE_NUMBER if NOTIFICATION_PHONE_NUMBER else 'Not Set'}")
     
-    if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER, NOTIFICATION_PHONE_NUMBER]):
+    if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, NOTIFICATION_PHONE_NUMBER]):
         print("❌ Twilio credentials or phone number not fully configured")
         return False
     
@@ -97,7 +109,7 @@ def send_sms_notification(message, document=None):
         # Send the SMS
         twilio_message = client.messages.create(
             body=sms_message,
-            from_=TWILIO_FROM_NUMBER,
+            from_=TWILIO_PHONE_NUMBER,
             to=NOTIFICATION_PHONE_NUMBER
         )
         
