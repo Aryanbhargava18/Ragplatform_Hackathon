@@ -1,1 +1,1 @@
-web: streamlit run app.py 
+web: gunicorn vercel_app:app 
