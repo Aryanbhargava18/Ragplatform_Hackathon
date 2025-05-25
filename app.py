@@ -9,6 +9,7 @@ from datetime import datetime
 import os
 from streamlit_lottie import st_lottie
 from streamlit_extras.colored_header import colored_header
+from openai import OpenAI
 
 from data_ingestion import start_ingestion_pipeline
 from vector_store import query_hybrid_index, get_latest_documents
@@ -17,6 +18,23 @@ from notification_service import send_notification
 from utils import format_datetime
 from compliance_keywords import COMPLIANCE_KEYWORDS, RISK_LEVELS
 
+# Initialize OpenAI client
+try:
+    # Try to get API key from Streamlit secrets first
+    if 'openai' in st.secrets:
+        openai_api_key = st.secrets.openai.api_key
+    else:
+        openai_api_key = os.environ.get("OPENAI_API_KEY")
+    
+    if not openai_api_key:
+        st.warning("⚠️ OpenAI API key not found. Please configure it in Streamlit secrets or environment variables.")
+        client = None
+    else:
+        client = OpenAI(api_key=openai_api_key)
+except Exception as e:
+    print(f"Error initializing OpenAI client: {str(e)}")
+    client = None
+
 # Page configuration
 st.set_page_config(
     page_title="Financial Compliance Copilot",
@@ -24,6 +42,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Check if OpenAI API key is set
+if not os.environ.get("OPENAI_API_KEY"):
+    st.warning("⚠️ OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
 
 # Helper function to load Lottie animations
 def load_lottieurl(url: str):
@@ -364,30 +386,25 @@ else:
         # Notification settings
         st.subheader("Notification Settings")
         
-        notify_email = st.checkbox("Email Alerts", value=False, key="notify_email")
-        notify_slack = st.checkbox("Slack Alerts", value=False, key="notify_slack")
-        notify_sms = st.checkbox("SMS Alerts", value=True, key="notify_sms")
-        
-        if notify_sms:
-            phone_number = st.text_input(
-                "Phone Number", 
-                placeholder="+1234567890",
-                help="Enter your phone number in E.164 format (e.g., +1234567890)",
-                key="phone_number"
-            )
-            if phone_number:
-                # Update the notification service with the phone number
-                import notification_service
-                notification_service.NOTIFICATION_PHONE_NUMBER = phone_number
-                st.success(f"✅ Phone number {phone_number} configured for notifications")
+        phone_number = st.text_input(
+            "Phone Number", 
+            placeholder="+1234567890",
+            help="Enter your phone number in E.164 format (e.g., +1234567890)",
+            key="phone_number"
+        )
+        if phone_number:
+            # Update the notification service with the phone number
+            import notification_service
+            notification_service.NOTIFICATION_PHONE_NUMBER = phone_number
+            st.success(f"✅ Phone number {phone_number} configured for notifications")
         
         # Manual notification test
         st.subheader("Send Test Alert")
         manual_notification = st.text_area("Notification Message", placeholder="Enter alert message here...", key="manual_notification")
         if st.button("Send Alert", key="send_alert"):
             if manual_notification:
-                if notify_sms and not phone_number:
-                    st.error("❌ Please enter a phone number to receive SMS notifications")
+                if not phone_number:
+                    st.error("❌ Please enter a phone number to receive notifications")
                 else:
                     # Create a test document for the notification
                     test_doc = {
@@ -623,129 +640,116 @@ else:
         <div class="tab-content">
         """, unsafe_allow_html=True)
         
-        # Q&A interface
-        st.markdown("""
-        <div class="metric-card" style="margin-bottom: 30px;">
-            <p style="color: #00BCD4; font-size: 1.1rem; margin-bottom: 15px;">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="#00BCD4" style="vertical-align: middle; margin-right: 8px;">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92c-.5.51-.86.97-1.04 1.69-.08.32-.13.68-.13 1.14h-2v-.5c0-.46.08-.9.22-1.31.2-.58.53-1.1.95-1.52l1.24-1.26c.46-.44.68-1.1.55-1.8-.13-.72-.69-1.33-1.39-1.53-1.11-.31-2.14.32-2.47 1.27-.12.35-.43.58-.79.58h-.13c-.55-.06-.98-.57-.93-1.12.12-1.54 1.33-2.82 2.89-3.14 1.66-.35 3.29.54 3.93 2.2.58 1.5-.14 2.99-1.1 3.89zM12 4c-4.41 0-8 3.59-8 8s3.59 8 8 8 8-3.59 8-8-3.59-8-8-8z"></path>
-                </svg>
-                Ask any question about financial regulations and compliance
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Q&A input
-        user_question = st.text_input(
-            "Ask a compliance question",
-            placeholder="Example: What are the latest SEC regulations on ESG reporting?",
-            key="qa_input"
-        )
-        
-        # Jurisdiction filter
-        st.markdown("<p style='color: #757575; margin-bottom: 5px;'>Jurisdiction Context</p>", unsafe_allow_html=True)
-        
-        qa_jurisdiction = st.radio(
-            "",
-            options=["US", "EU", "INDIA", "ASIA", "GLOBAL"],
-            index=0,
-            horizontal=True,
-            label_visibility="collapsed"
-        )
-        
-        if user_question:
-            with st.spinner("Searching for relevant information..."):
-                # Query the vector store
-                search_results = query_hybrid_index(
-                    query=user_question,
-                    jurisdiction=qa_jurisdiction if qa_jurisdiction != "GLOBAL" else None,
-                    top_k=3
-                )
-                
-                time.sleep(1)  # Simulate processing time
-                
-                # Display answer
-                st.markdown("""
-                <div class="dashboard-header" style="background: linear-gradient(to right, #00BCD4, #00ACC1); margin: 20px 0;">
-                    <div class="dashboard-header-content">
-                        <h3 style="color: #00BCD4; margin-bottom: 10px;">Answer</h3>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                with st.container():
-                    # Simulate answer based on query
-                    if "ESG" in user_question:
+        # Check if OpenAI is properly configured
+        if not client:
+            st.error("❌ OpenAI integration is not properly configured. Please check your API key.")
+        else:
+            # Q&A interface
+            st.markdown("""
+            <div class="metric-card" style="margin-bottom: 30px;">
+                <p style="color: #00BCD4; font-size: 1.1rem; margin-bottom: 15px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="#00BCD4" style="vertical-align: middle; margin-right: 8px;">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92c-.5.51-.86.97-1.04 1.69-.08.32-.13.68-.13 1.14h-2v-.5c0-.46.08-.9.22-1.31.2-.58.53-1.1.95-1.52l1.24-1.26c.46-.44.68-1.1.55-1.8-.13-.72-.69-1.33-1.39-1.53-1.11-.31-2.14.32-2.47 1.27-.12.35-.43.58-.79.58h-.13c-.55-.06-.98-.57-.93-1.12.12-1.54 1.33-2.82 2.89-3.14 1.66-.35 3.29.54 3.93 2.2.58 1.5-.14 2.99-1.1 3.89z"></path>
+                    </svg>
+                    Ask any question about financial regulations and compliance
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Q&A input
+            user_question = st.text_input(
+                "Ask a compliance question",
+                placeholder="Example: What are the latest SEC regulations on ESG reporting?",
+                key="qa_input"
+            )
+            
+            # Jurisdiction filter
+            st.markdown("<p style='color: #757575; margin-bottom: 5px;'>Jurisdiction Context</p>", unsafe_allow_html=True)
+            
+            qa_jurisdiction = st.radio(
+                "",
+                options=["US", "EU", "INDIA", "ASIA", "GLOBAL"],
+                index=0,
+                horizontal=True,
+                label_visibility="collapsed"
+            )
+            
+            if user_question:
+                with st.spinner("Searching for relevant information..."):
+                    try:
+                        # Query the vector store
+                        search_results = query_hybrid_index(
+                            query=user_question,
+                            jurisdiction=qa_jurisdiction if qa_jurisdiction != "GLOBAL" else None,
+                            top_k=3
+                        )
+                        
+                        # Prepare context for OpenAI
+                        context = "\n\n".join([
+                            f"Document {i+1}:\n{result['excerpt']}"
+                            for i, result in enumerate(search_results)
+                        ])
+                        
+                        # Generate answer using OpenAI
+                        response = client.chat.completions.create(
+                            model="gpt-4",
+                            messages=[
+                                {
+                                    "role": "system",
+                                    "content": """You are a financial compliance expert assistant. 
+                                    Your task is to provide accurate, clear, and concise answers to questions about financial regulations and compliance.
+                                    Base your answers on the provided context documents, and clearly indicate if you're unsure about any information.
+                                    Format your responses with clear sections and bullet points where appropriate."""
+                                },
+                                {
+                                    "role": "user",
+                                    "content": f"""Question: {user_question}\n\nContext:\n{context}\n\nPlease provide a comprehensive answer based on the context provided."""
+                                }
+                            ],
+                            max_tokens=1000
+                        )
+                        
+                        answer = response.choices[0].message.content
+                        
+                        # Display answer
                         st.markdown("""
-                        <div class="metric-card">
-                            <p style="color: #212121; line-height: 1.6;">
-                                The SEC has proposed new ESG disclosure requirements in March 2023 requiring public companies to:
-                            </p>
-                            <ol style="color: #212121; line-height: 1.6;">
-                                <li>Disclose material climate-related risks and their impact on business strategy</li>
-                                <li>Report Scope 1 and Scope 2 greenhouse gas emissions</li>
-                                <li>Include climate-related metrics in financial statements</li>
-                                <li>Provide governance information related to climate risk management</li>
-                            </ol>
-                            <p style="color: #212121; line-height: 1.6;">
-                                These rules are expected to be finalized in Q3 2023 with a phased compliance timeline based on company size.
-                            </p>
+                        <div class="dashboard-header" style="background: linear-gradient(to right, #00BCD4, #00ACC1); margin: 20px 0;">
+                            <div class="dashboard-header-content">
+                                <h3 style="color: #00BCD4; margin-bottom: 10px;">Answer</h3>
+                            </div>
                         </div>
                         """, unsafe_allow_html=True)
-                    elif "insider trading" in user_question.lower():
-                        st.markdown("""
-                        <div class="metric-card">
-                            <p style="color: #212121; line-height: 1.6;">
-                                Recent SEC enforcement on insider trading includes:
-                            </p>
-                            <ol style="color: #212121; line-height: 1.6;">
-                                <li>Increased penalties for violations (up to 3x the profit gained or loss avoided)</li>
-                                <li>Extended lookback periods for investigations</li>
-                                <li>New requirements for insider trading policies</li>
-                                <li>Enhanced disclosure of Rule 10b5-1 trading plans</li>
-                            </ol>
-                            <p style="color: #212121; line-height: 1.6;">
-                                The SEC has also broadened the definition of "material non-public information" in recent cases.
-                            </p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.markdown("""
-                        <div class="metric-card">
-                            <p style="color: #212121; line-height: 1.6;">
-                                Based on the available information, financial compliance regulations in your selected jurisdiction are
-                                constantly evolving. Recent trends show increased focus on transparency, disclosure requirements, and
-                                stricter enforcement of existing regulations.
-                            </p>
-                            <p style="color: #212121; line-height: 1.6; margin-top: 15px;">
-                                For more specific information about your question, please consult with a compliance professional or
-                                refer to the official regulatory bodies:
-                            </p>
-                            <ul style="color: #212121; line-height: 1.6;">
-                                <li>US: SEC (Securities and Exchange Commission)</li>
-                                <li>EU: ESMA (European Securities and Markets Authority)</li>
-                            </ul>
-                        </div>
-                        """, unsafe_allow_html=True)
-                
-                # Source documents
-                st.markdown("""
-                <div class="dashboard-header" style="background: linear-gradient(to right, #00BCD4, #00ACC1); margin: 20px 0;">
-                    <div class="dashboard-header-content">
-                        <h3 style="color: #00BCD4; margin-bottom: 10px;">Sources</h3>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                for i, result in enumerate(search_results):
-                    with st.expander(f"Source {i+1}: {result['title']}"):
+                        
                         st.markdown(f"""
-                        <div class="metric-card" style="padding: 10px;">
-                            <p><strong>Document ID:</strong> {result['id']}</p>
-                            <p><strong>Relevance Score:</strong> {result['score']:.2f}</p>
-                            <p><strong>Date:</strong> {result['date']}</p>
-                            <p><strong>Excerpt:</strong> {result['excerpt']}</p>
+                        <div class="metric-card">
+                            <p style="color: #212121; line-height: 1.6;">
+                                {answer}
+                            </p>
                         </div>
                         """, unsafe_allow_html=True)
+                        
+                        # Display sources
+                        st.markdown("""
+                        <div class="dashboard-header" style="margin: 20px 0;">
+                            <div class="dashboard-header-content">
+                                <h3 style="color: #00BCD4; margin-bottom: 10px;">Sources</h3>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        for i, result in enumerate(search_results):
+                            with st.expander(f"Source {i+1}: {result['title']}"):
+                                st.markdown(f"""
+                                <div class="metric-card" style="padding: 10px;">
+                                    <p><strong>Document ID:</strong> {result['id']}</p>
+                                    <p><strong>Relevance Score:</strong> {result['score']:.2f}</p>
+                                    <p><strong>Date:</strong> {result['date']}</p>
+                                    <p><strong>Excerpt:</strong> {result['excerpt']}</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                    
+                    except Exception as e:
+                        st.error(f"❌ Error generating answer: {str(e)}")
+                        st.info("Please make sure your OpenAI API key is properly configured and has sufficient credits.")
         
-        st.markdown("</div>", unsafe_allow_html=True) # Close tab-content div
+        st.markdown("</div>", unsafe_allow_html=True)

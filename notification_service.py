@@ -1,6 +1,5 @@
 import os
 import json
-import requests
 from datetime import datetime
 import threading
 import time
@@ -32,9 +31,7 @@ def get_credentials():
 
 # Global notification settings
 notification_settings = {
-    "slack_webhook_url": os.environ.get("SLACK_WEBHOOK_URL", ""),
-    "email_notifications_enabled": False,  # Disable email for now
-    "sms_notifications_enabled": True,     # Enable SMS
+    "sms_notifications_enabled": True,  # Enable SMS by default
     "notification_history": [],
     "dev_mode": DEV_MODE
 }
@@ -59,125 +56,6 @@ def initialize_twilio_credentials():
 # Initialize credentials when module is loaded
 initialize_twilio_credentials()
 
-def send_slack_notification(message, document=None):
-    """
-    Send a notification to Slack
-    """
-    if notification_settings["dev_mode"]:
-        print("\n=== Development Mode: Slack Notification ===")
-        print(f"Message: {message}")
-        if document:
-            print(f"Document ID: {document.get('id', 'Unknown')}")
-            print(f"Risk Score: {document.get('risk_score', 0):.2f}")
-        print("==========================================\n")
-        return True
-        
-    webhook_url = notification_settings["slack_webhook_url"]
-    
-    if not webhook_url:
-        print("Slack webhook URL not configured")
-        return False
-    
-    try:
-        # Prepare the Slack message payload
-        payload = {
-            "text": message,
-            "blocks": [
-                {
-                    "type": "header",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Compliance Alert 🚨"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": message
-                    }
-                }
-            ]
-        }
-        
-        # Add document details if provided
-        if document:
-            payload["blocks"].append({
-                "type": "section",
-                "fields": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Document ID:*\n{document.get('id', 'Unknown')}"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Risk Score:*\n{document.get('risk_score', 0):.2f}"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Jurisdiction:*\n{document.get('jurisdiction', 'Unknown')}"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Source:*\n{document.get('source', 'Unknown')}"
-                    }
-                ]
-            })
-            
-            # Add document content
-            payload["blocks"].append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*Document Preview:*\n```{document.get('content', '')[:200]}...```"
-                }
-            })
-        
-        # Send the request to Slack
-        response = requests.post(webhook_url, json=payload)
-        
-        if response.status_code == 200:
-            print("Slack notification sent successfully")
-            return True
-        else:
-            print(f"Failed to send Slack notification: {response.status_code}")
-            return False
-    
-    except Exception as e:
-        print(f"Error sending Slack notification: {str(e)}")
-        return False
-
-def send_email_notification(recipient, subject, message, document=None):
-    """
-    Send an email notification
-    """
-    if notification_settings["dev_mode"]:
-        print("\n=== Development Mode: Email Notification ===")
-        print(f"To: {recipient}")
-        print(f"Subject: {subject}")
-        print(f"Message: {message}")
-        if document:
-            print(f"Document ID: {document.get('id', 'Unknown')}")
-            print(f"Risk Score: {document.get('risk_score', 0):.2f}")
-        print("==========================================\n")
-        return True
-        
-    try:
-        # In a production environment, send the actual email
-        print(f"Email notification:")
-        print(f"To: {recipient}")
-        print(f"Subject: {subject}")
-        print(f"Message: {message}")
-        
-        if document:
-            print(f"Document ID: {document.get('id', 'Unknown')}")
-            print(f"Risk Score: {document.get('risk_score', 0):.2f}")
-        
-        return True
-    except Exception as e:
-        print(f"Error sending email notification: {str(e)}")
-        return False
-
 def send_sms_notification(message, document=None):
     """
     Send an SMS notification using Twilio
@@ -191,8 +69,15 @@ def send_sms_notification(message, document=None):
         print("==========================================\n")
         return True
         
+    # Debug logging
+    print("\n=== SMS Notification Debug ===")
+    print(f"TWILIO_ACCOUNT_SID: {'Set' if TWILIO_ACCOUNT_SID else 'Not Set'}")
+    print(f"TWILIO_AUTH_TOKEN: {'Set' if TWILIO_AUTH_TOKEN else 'Not Set'}")
+    print(f"TWILIO_FROM_NUMBER: {TWILIO_FROM_NUMBER if TWILIO_FROM_NUMBER else 'Not Set'}")
+    print(f"NOTIFICATION_PHONE_NUMBER: {NOTIFICATION_PHONE_NUMBER if NOTIFICATION_PHONE_NUMBER else 'Not Set'}")
+    
     if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER, NOTIFICATION_PHONE_NUMBER]):
-        print("Twilio credentials not fully configured")
+        print("❌ Twilio credentials or phone number not fully configured")
         return False
     
     try:
@@ -206,6 +91,9 @@ def send_sms_notification(message, document=None):
             sms_message += f"\nRisk: {document.get('risk_score', 0):.2f}"
             sms_message += f"\nJurisdiction: {document.get('jurisdiction', 'Unknown')}"
         
+        print(f"Sending SMS to: {NOTIFICATION_PHONE_NUMBER}")
+        print(f"Message: {sms_message}")
+        
         # Send the SMS
         twilio_message = client.messages.create(
             body=sms_message,
@@ -213,66 +101,16 @@ def send_sms_notification(message, document=None):
             to=NOTIFICATION_PHONE_NUMBER
         )
         
-        print(f"SMS notification sent with SID: {twilio_message.sid}")
+        print(f"✅ SMS notification sent with SID: {twilio_message.sid}")
         return True
     
     except Exception as e:
-        print(f"Error sending SMS notification: {str(e)}")
-        return False
-
-def check_and_send_alerts(document, risk_analysis):
-    """
-    Check if alerts should be sent based on risk analysis
-    """
-    try:
-        risk_score = risk_analysis.get('risk_score', 0)
-        
-        # For demo purposes, we'll just print the alerts
-        if risk_score >= 0.7:
-            print(f"[HIGH RISK ALERT] Document {document.get('id', 'Unknown')} requires immediate attention!")
-            print(f"Risk Score: {risk_score:.2%}")
-            print(f"Jurisdiction: {risk_analysis.get('jurisdiction', 'Unknown')}")
-            print(f"Categories: {', '.join(risk_analysis.get('risk_categories', []))}")
-            
-            # In a production environment, we would send actual notifications
-            if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
-                send_sms_alert(document, risk_analysis)
-        
-        return True
-    except Exception as e:
-        print(f"Error in check_and_send_alerts: {str(e)}")
-        return False
-
-def send_sms_alert(document, risk_analysis):
-    """
-    Send SMS alert using Twilio
-    """
-    try:
-        if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER]):
-            return False
-        
-        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        
-        message = f"""
-        🚨 HIGH RISK ALERT
-        Document: {document.get('id', 'Unknown')}
-        Risk Score: {risk_analysis.get('risk_score', 0):.2%}
-        Jurisdiction: {risk_analysis.get('jurisdiction', 'Unknown')}
-        Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-        """
-        
-        # In a production environment, we would send to registered phone numbers
-        # For demo, we'll just print the message
-        print("Would send SMS:", message)
-        
-        return True
-    except Exception as e:
-        print(f"Error sending SMS alert: {str(e)}")
+        print(f"❌ Error sending SMS notification: {str(e)}")
         return False
 
 def send_notification(message, document_id=None, risk_score=None):
     """
-    Send a manual notification
+    Send a notification
     """
     # Prepare document info if provided
     document = None
@@ -282,73 +120,51 @@ def send_notification(message, document_id=None, risk_score=None):
             "risk_score": risk_score if risk_score is not None else 0.8
         }
     
-    # Send notifications
-    notifications_sent = 0
-    errors = []
-    
-    # In development mode, we'll simulate all notifications
+    # In development mode, we'll simulate notifications
     if notification_settings["dev_mode"]:
         print("\n=== Development Mode: Sending Notifications ===")
         
-        # Send Slack notification
-        if send_slack_notification(message, document):
-            notifications_sent += 1
-        
         # Send SMS notification
         if send_sms_notification(message, document):
-            notifications_sent += 1
-        
-        # Send email notification
-        if send_email_notification("test@example.com", "Test Notification", message, document):
-            notifications_sent += 1
-            
-        print(f"Successfully sent {notifications_sent} notifications in development mode")
-        print("============================================\n")
-        
-        return {
-            "success": True,
-            "notifications_sent": notifications_sent,
-            "errors": [],
-            "dev_mode": True
-        }
+            print("Successfully sent SMS notification in development mode")
+            print("============================================\n")
+            return {
+                "success": True,
+                "notifications_sent": 1,
+                "errors": [],
+                "dev_mode": True
+            }
     
     # Production mode notifications
-    # Send Slack notification
-    if notification_settings["slack_webhook_url"]:
-        try:
-            if send_slack_notification(message, document):
-                notifications_sent += 1
-            else:
-                errors.append("Slack notification failed")
-        except Exception as e:
-            errors.append(f"Slack error: {str(e)}")
-    else:
-        errors.append("Slack webhook URL not configured")
-    
     # Send SMS notification
     if notification_settings["sms_notifications_enabled"]:
         try:
             if send_sms_notification(message, document):
-                notifications_sent += 1
+                return {
+                    "success": True,
+                    "notifications_sent": 1,
+                    "errors": [],
+                    "dev_mode": False
+                }
             else:
-                errors.append("SMS notification failed")
+                return {
+                    "success": False,
+                    "notifications_sent": 0,
+                    "errors": ["SMS notification failed"],
+                    "dev_mode": False
+                }
         except Exception as e:
-            errors.append(f"SMS error: {str(e)}")
-    
-    # Send email notification
-    if notification_settings["email_notifications_enabled"]:
-        try:
-            if send_email_notification("test@example.com", "Test Notification", message, document):
-                notifications_sent += 1
-            else:
-                errors.append("Email notification failed")
-        except Exception as e:
-            errors.append(f"Email error: {str(e)}")
+            return {
+                "success": False,
+                "notifications_sent": 0,
+                "errors": [f"SMS error: {str(e)}"],
+                "dev_mode": False
+            }
     
     return {
-        "success": notifications_sent > 0,
-        "notifications_sent": notifications_sent,
-        "errors": errors,
+        "success": False,
+        "notifications_sent": 0,
+        "errors": ["No notification methods enabled"],
         "dev_mode": False
     }
 

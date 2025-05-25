@@ -10,13 +10,13 @@ import random
 from compliance_keywords import COMPLIANCE_KEYWORDS
 from vector_store import update_vector_index
 from compliance_analyzer import analyze_document_risk, categorize_by_jurisdiction
-from notification_service import check_and_send_alerts
+from notification_service import send_notification
 from mock_websocket import start_mock_websocket_server
 
-# API Endpoints for data sources
+# API endpoints (for demo purposes)
 SEC_API_ENDPOINT = "https://www.sec.gov/cgi-bin/browse-edgar"
 NEWS_API_ENDPOINT = "https://newsapi.org/v2/everything"
-NEWS_API_KEY = os.environ.get("NEWS_API_KEY", "")
+NEWS_API_KEY = os.environ.get("NEWS_API_KEY")
 
 # Global variables
 running = False
@@ -238,7 +238,7 @@ def setup_pathway_pipeline():
     analyzed_documents.filter(
         pw.this.risk_score >= 0.7  # High risk threshold
     ).sink_to(pw.io.python_callback(
-        lambda row: check_and_send_alerts(row)
+        lambda row: check_and_send_alerts(row, {"risk_score": row["risk_score"], "jurisdiction": row["jurisdiction"]})
     ))
     
     # Run the pipeline
@@ -264,8 +264,9 @@ def data_ingestion_thread():
                 # In a production environment, this would be fed into the Pathway input connectors
                 # For this prototype, we'll directly update the vector index
                 update_vector_index(doc)
-                if analyze_document_risk(doc["id"], doc["content"])["risk_score"] >= 0.7:
-                    check_and_send_alerts(doc)
+                risk_analysis = analyze_document_risk(doc["id"], doc["content"])
+                if risk_analysis["risk_score"] >= 0.7:
+                    check_and_send_alerts(doc, risk_analysis)
             
             # Fetch financial news
             news_documents = fetch_financial_news(count=random.randint(1, 3))
@@ -273,8 +274,9 @@ def data_ingestion_thread():
                 # In a production environment, this would be fed into the Pathway input connectors
                 # For this prototype, we'll directly update the vector index
                 update_vector_index(doc)
-                if analyze_document_risk(doc["id"], doc["content"])["risk_score"] >= 0.7:
-                    check_and_send_alerts(doc)
+                risk_analysis = analyze_document_risk(doc["id"], doc["content"])
+                if risk_analysis["risk_score"] >= 0.7:
+                    check_and_send_alerts(doc, risk_analysis)
             
             # Wait before the next iteration
             time.sleep(10)
@@ -324,3 +326,33 @@ def stop_ingestion_pipeline():
     """
     global running
     running = False
+
+def check_and_send_alerts(document, risk_analysis):
+    """
+    Check if alerts should be sent based on risk analysis
+    """
+    try:
+        risk_score = risk_analysis.get('risk_score', 0)
+        
+        # Send alerts for high-risk documents (risk score >= 0.7)
+        if risk_score >= 0.7:
+            message = f"""🚨 HIGH RISK ALERT
+Document: {document.get('id', 'Unknown')}
+Risk Score: {risk_score:.2%}
+Jurisdiction: {risk_analysis.get('jurisdiction', 'Unknown')}
+Categories: {', '.join(risk_analysis.get('risk_categories', []))}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+            
+            # Send notification
+            notification_result = send_notification(
+                message=message,
+                document_id=document.get('id'),
+                risk_score=risk_score
+            )
+            
+            return notification_result.get("success", False)
+        
+        return True
+    except Exception as e:
+        print(f"Error in check_and_send_alerts: {str(e)}")
+        return False
