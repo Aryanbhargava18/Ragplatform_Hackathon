@@ -6,12 +6,17 @@ import os
 import threading
 from datetime import datetime, timedelta
 import random
+import streamlit as st
+from utils import get_openai_client
 
 from compliance_keywords import COMPLIANCE_KEYWORDS
 from vector_store import update_vector_index
 from compliance_analyzer import analyze_document_risk, categorize_by_jurisdiction
 from notification_service import send_notification
 from mock_websocket import start_mock_websocket_server
+
+# Initialize OpenAI client
+client = get_openai_client()
 
 # API endpoints (for demo purposes)
 SEC_API_ENDPOINT = "https://www.sec.gov/cgi-bin/browse-edgar"

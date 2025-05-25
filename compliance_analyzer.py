@@ -1,15 +1,14 @@
 import os
 import json
 import random
-import openai
-from openai import OpenAI
 from datetime import datetime
 from compliance_keywords import COMPLIANCE_KEYWORDS, RISK_LEVELS
 from redis_cache import get_cached_result, cache_result
+import streamlit as st
+from utils import get_openai_client
 
 # Initialize OpenAI client
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = get_openai_client()
 
 def analyze_document_risk(doc_id, content):
     """
@@ -30,9 +29,15 @@ def analyze_document_risk(doc_id, content):
         return result
     
     try:
+        if not client:
+            # Fallback to simplified analysis if OpenAI client is not available
+            result = simplified_risk_analysis(content)
+            cache_result(cache_key, json.dumps(result))
+            return result
+            
         # Use OpenAI to analyze the document
         response = client.chat.completions.create(
-            model="gpt-4o",  # the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+            model="gpt-4",
             messages=[
                 {
                     "role": "system",

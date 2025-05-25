@@ -1,4 +1,27 @@
+import os
+import streamlit as st
+from openai import OpenAI
 from datetime import datetime
+
+def get_openai_client():
+    """
+    Centralized function to get OpenAI client with proper error handling
+    """
+    try:
+        # Try to get API key from Streamlit secrets first
+        if 'openai' in st.secrets:
+            api_key = st.secrets.openai.api_key
+        else:
+            api_key = os.environ.get("OPENAI_API_KEY")
+        
+        if not api_key:
+            st.error("⚠️ OpenAI API key not found. Please configure it in Streamlit secrets or environment variables.")
+            return None
+            
+        return OpenAI(api_key=api_key)
+    except Exception as e:
+        st.error(f"❌ Error initializing OpenAI client: {str(e)}")
+        return None
 
 def format_datetime(dt):
     """

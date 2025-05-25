@@ -4,16 +4,14 @@ import time
 import math
 import numpy as np
 from datetime import datetime
-import openai
-from openai import OpenAI
 import threading
 import redis
 from redis_cache import get_redis_client, get_cached_result, cache_result
-from utils import format_datetime
+from utils import format_datetime, get_openai_client
+import streamlit as st
 
 # Initialize OpenAI client
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = get_openai_client()
 
 # Global in-memory store for documents and embeddings
 # In a production environment, this would be a persistent vector database
@@ -37,6 +35,10 @@ def generate_embedding(text):
         if cached_embedding:
             return json.loads(cached_embedding)
         
+        if not client:
+            # Return zero vector if OpenAI client is not available
+            return [0.0] * 1536  # Ada embeddings are 1536 dimensions
+            
         # Generate new embedding
         response = client.embeddings.create(
             model="text-embedding-ada-002",
